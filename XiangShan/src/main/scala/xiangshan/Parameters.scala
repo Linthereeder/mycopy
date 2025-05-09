@@ -61,8 +61,8 @@ case class XSCoreParameters
   VLEN: Int = 128,
   ELEN: Int = 64,
   HSXLEN: Int = 64,
+  HasMptCheck: Boolean = true,
   HasBitmapCheck: Boolean = false,
-  HasMptCheck : Boolean = false,
   HasBitmapCheckDefault: Boolean = false,
   HasMExtension: Boolean = true,
   HasCExtension: Boolean = true,
@@ -80,8 +80,8 @@ case class XSCoreParameters
   HasVPU: Boolean = true,
   HasCustomCSRCacheOp: Boolean = true,
   FetchWidth: Int = 8,
-  SdidLength :Int = 6,
   AsidLength: Int = 16,
+  SdidLength: Int = 6,
   VmidLength: Int = 14,
   EnableBPU: Boolean = true,
   EnableBPD: Boolean = true,
@@ -593,9 +593,9 @@ trait HasXSParameter {
   val fLen = 64
   def hartIdLen = p(MaxHartIdBits)
   val xLen = XLEN
-
+  
+  def HasMptCheck = coreParams.HasMptCheck
   def HasBitmapCheck = coreParams.HasBitmapCheck
-  def HasMptCheck = coreParams.HasMptCheck && !coreParams.HasBitmapCheck// either MPT or bitmap, they do the same job
   def HasBitmapCheckDefault = coreParams.HasBitmapCheckDefault
   def HasMExtension = coreParams.HasMExtension
   def HasCExtension = coreParams.HasCExtension

@@ -90,11 +90,12 @@ case class L2TLBParameters
   // enable ecc
   enablePTWECC: Boolean = false
 )
-trait  MPTcacheparam extends HasTlbConst{ 
+trait MPTCacheParam extends HasTlbConst{ 
     val SDID_cache_store_en= false 
-    val Perm_LEN=48   
+    val perms16Len=48   
     val mptSourceWidth=3  
-    val Level_LEN=4
+    val mptLevelLenOH=4
+    val mptLevelLenUInt=2
     val MptOff=16 
     // l3  //8T
     val l3Size  = 1 

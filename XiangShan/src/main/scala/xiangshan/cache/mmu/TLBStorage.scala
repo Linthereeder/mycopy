@@ -188,7 +188,7 @@ class TLBFA(
   }
 
   val sfence = io.sfence
-  val sfence_valid = sfence.valid && !sfence.bits.hg && !sfence.bits.hv
+  val sfence_valid = sfence.valid && !sfence.bits.hg && !sfence.bits.hv && (if(HasMptCheck) !(sfence.bits.mfence.get) else true.B)
   val sfence_vpn = sfence.bits.addr(VAddrBits - 1, offLen)
   val sfenceHit = entries.map(_.hit(sfence_vpn, sfence.bits.id, vmid = io.csr.hgatp.vmid, hasS2xlate = io.csr.priv.virt))
   val sfenceHit_noasid = entries.map(_.hit(sfence_vpn, sfence.bits.id, ignoreAsid = true, vmid = io.csr.hgatp.vmid, hasS2xlate = io.csr.priv.virt))
@@ -249,7 +249,7 @@ class TLBFA(
     }
   }
 
-  when(io.mfence.get.valid){//HasMptCheck
+  when(sfence.valid && sfence.bits.mfence.get){//HasMptCheck
     v.zipWithIndex.map { case (a, i) => a := false.B }//mfence reset all
   }
   XSPerfAccumulate(s"access", io.r.resp.map(_.valid.asUInt).fold(0.U)(_ + _))

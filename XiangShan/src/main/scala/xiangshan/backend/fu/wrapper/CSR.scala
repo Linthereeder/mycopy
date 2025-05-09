@@ -259,6 +259,13 @@ class CSR(cfg: FuConfig)(implicit p: Parameters) extends FuncUnit(cfg)
   tlb.mbmc.BCLEAR   := csrMod.io.tlb.mbmc.BCLEAR.asUInt
   tlb.mbmc.BMA      := csrMod.io.tlb.mbmc.BMA.asUInt
 
+  tlb.mmpt.mode := csrMod.io.tlb.mmpt.MODE.asUInt
+  tlb.mmpt.sdid:= csrMod.io.tlb.mmpt.SDID.asUInt
+  tlb.mmpt.ppn:= csrMod.io.tlb.mmpt.PPN.asUInt
+  tlb.mmpt.changed:= csrMod.io.tlb.mmptSDIDChanged
+
+
+
   // expose several csr bits for tlb
   tlb.priv.mxr := csrMod.io.tlb.mxr
   tlb.priv.sum := csrMod.io.tlb.sum
@@ -483,6 +490,7 @@ class CSRToDecode(implicit p: Parameters) extends XSBundle {
      * raise EX_VI when isModeVS || isModeVU
      */
     val hfence = Bool()
+
     /**
      * illegal hlv, hlvx, and hsv
      * raise EX_VI when isModeVS || isModeVU

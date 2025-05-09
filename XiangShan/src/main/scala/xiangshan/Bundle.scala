@@ -587,7 +587,7 @@ class SfenceBundle(implicit p: Parameters) extends XSBundle {
     val rs1 = Bool()
     val rs2 = Bool()
     val addr = UInt(VAddrBits.W)
-    val id = UInt((AsidLength).W) // asid or vmid
+    val id =  UInt((AsidLength).W)  // asid or vmid or SDID
     val flushPipe = Bool()
     val hv = Bool()
     val hg = Bool()
@@ -599,7 +599,7 @@ class SfenceBundle(implicit p: Parameters) extends XSBundle {
   }
 }
 
-class MfenceBundle(implicit p: Parameters) extends XSBundle {
+/*class MfenceBundle(implicit p: Parameters) extends XSBundle {
   val valid = Bool()
   val bits = new Bundle {
     val rs1 = Bool()
@@ -610,7 +610,7 @@ class MfenceBundle(implicit p: Parameters) extends XSBundle {
   override def toPrintable: Printable = {
     p"valid:0x${Hexadecimal(valid)} rs1:${bits.rs1} rs2:${bits.rs2} addr:${Hexadecimal(bits.addr)}"
   }
-}
+}*/
 // Bundle for load violation predictor updating
 class MemPredUpdateReq(implicit p: Parameters) extends XSBundle  {
   val valid = Bool()

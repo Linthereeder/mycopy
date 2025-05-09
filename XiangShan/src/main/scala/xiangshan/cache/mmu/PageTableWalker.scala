@@ -97,7 +97,7 @@ class PTWIO()(implicit p: Parameters) extends MMUIOBaseBundle with HasPtwConst {
 
   val mptCheck = Option.when(HasMptCheck)(new Bundle { //mpt interface
       val req = DecoupledIO(new mptReqBundle())
-      val resp = Flipped(DecoupledIO(new mptRespBundle()))
+      val resp = Flipped(ValidIO(new mptRespBundle()))
     })
 }
 
@@ -126,7 +126,7 @@ class PTW()(implicit p: Parameters) extends XSModule with HasPtwConst with HasPe
 
   val mode = satp.mode
   val hgatp = io.csr.hgatp
-  val flush = io.sfence.valid || io.csr.satp.changed || io.csr.vsatp.changed || io.csr.hgatp.changed|| (if(HasMptCheck) (io.mfence.get.valid || io.csr.mmpt.changed) else false.B)//changes in mpt flush all
+  val flush = io.sfence.valid || io.csr.satp.changed || io.csr.vsatp.changed || io.csr.hgatp.changed|| (if(HasMptCheck) (io.csr.mmpt.changed) else false.B)//changes in mpt flush all
   val s2xlate = enableS2xlate && !onlyS1xlate
   val level = RegInit(3.U(log2Up(Level + 1).W))
   val af_level = RegInit(3.U(log2Up(Level + 1).W)) // access fault return this level
@@ -158,7 +158,7 @@ class PTW()(implicit p: Parameters) extends XSModule with HasPtwConst with HasPe
 
   val s_mpt_check = RegInit(false.B)//new fsm state for mpt 
   val w_mpt_resp = RegInit(false.B)
-  val mpt_af = if(HasMptCheck) {RegEnable(!io.mptCheck.get.resp.bits.mptperm(0) ||io.mptCheck.get.resp.bits.af , io.mptCheck.get.resp.valid)} else false.B
+  val mpt_af = if(HasMptCheck) {RegEnable(!io.mptCheck.get.resp.bits.mptPerm(0) ||io.mptCheck.get.resp.bits.accessFault , io.mptCheck.get.resp.valid)} else false.B
 
   val s_bitmap_check = RegInit(true.B)
   val w_bitmap_resp = RegInit(true.B)
@@ -269,6 +269,7 @@ class PTW()(implicit p: Parameters) extends XSModule with HasPtwConst with HasPe
   io.llptw.bits.req_info.source := source
   io.llptw.bits.req_info.vpn := vpn
   io.llptw.bits.req_info.s2xlate := req_s2xlate
+  if(HasMptCheck){io.llptw.bits.req_info.mptOnly.get := false.B}
   io.llptw.bits.ppn := DontCare
   if (HasBitmapCheck) {
     io.llptw.bits.bitmapCheck.get.jmp_bitmap_check := DontCare
@@ -278,6 +279,7 @@ class PTW()(implicit p: Parameters) extends XSModule with HasPtwConst with HasPe
   }
   if(HasMptCheck){//向mpt发送req
     io.mptCheck.get.req.valid:= s_mpt_check
+    io.mptCheck.get.req.bits.mptOnly:=false.B//mpt during tw is never mpt only 
     io.mptCheck.get.req.bits.reqPA:= Mux(s2xlate, hpaddr(PAddrBits-1 ,offLen), mem_addr(PAddrBits-1 ,offLen))
     io.mptCheck.get.req.bits.id:= DontCare//id assigned in l2tlb
   }
@@ -306,7 +308,7 @@ class PTW()(implicit p: Parameters) extends XSModule with HasPtwConst with HasPe
   io.refill.req_info.vpn := vpn
   io.refill.level := level
   io.refill.req_info.source := source
-
+  if(HasMptCheck){io.refill.req_info.mptOnly.get := false.B}
   io.hptw.req.valid := !s_hptw_req || !s_last_hptw_req
   io.hptw.req.bits.id := FsmReqID.U(bMemID.W)
   io.hptw.req.bits.gvpn := get_pn(gpaddr)
@@ -459,7 +461,7 @@ class PTW()(implicit p: Parameters) extends XSModule with HasPtwConst with HasPe
       }
     } 
     when(w_mpt_resp){
-      when(io.mptCheck.get.resp.fire){ 
+      when(io.mptCheck.get.resp.valid){ 
         w_mpt_resp:= false.B
         s_mem_req := false.B//send to mem when pmp && mpt pass
       }
@@ -727,7 +729,7 @@ class LLPTWIO(implicit p: Parameters) extends MMUIOBaseBundle with HasPtwConst {
 
   val mptCheck = Option.when(HasMptCheck)(new Bundle {
       val req = DecoupledIO(new mptReqBundle())
-      val resp = Flipped(DecoupledIO(new mptRespBundle()))
+      val resp = Flipped(ValidIO(new mptRespBundle()))
   })
 }
 
@@ -757,7 +759,7 @@ class LLPTW(implicit p: Parameters) extends XSModule with HasPtwConst with HasPe
   val mbmc = io.csr.mbmc
   val bitmap_enable = (if (HasBitmapCheck) true.B else false.B) && mbmc.BME === 1.U && mbmc.CMODE === 0.U
 
-  val flush = io.sfence.valid || io.csr.satp.changed || io.csr.vsatp.changed || io.csr.hgatp.changed || (if(HasMptCheck)( io.mfence.get.valid || io.csr.mmpt.changed ) else false.B)
+  val flush = io.sfence.valid || io.csr.satp.changed || io.csr.vsatp.changed || io.csr.hgatp.changed || (if(HasMptCheck)( io.csr.mmpt.changed ) else false.B)
   val entries = RegInit(VecInit(Seq.fill(l2tlbParams.llptwsize)(0.U.asTypeOf(new LLPTWEntry()))))
   val state_idle :: state_hptw_req :: state_hptw_resp :: state_addr_check :: state_mem_req :: state_mem_waiting :: state_mem_out :: state_last_hptw_req :: state_last_hptw_resp :: state_cache :: state_bitmap_check :: state_bitmap_resp ::stage_mpt_req ::stage_mpt_resp:: Nil = Enum(14)
   val state = RegInit(VecInit(Seq.fill(l2tlbParams.llptwsize)(state_idle)))
@@ -958,7 +960,7 @@ class LLPTW(implicit p: Parameters) extends XSModule with HasPtwConst with HasPe
     }
   
     when (io.mptCheck.get.resp.valid) {
-      val accessFault = !(io.mptCheck.get.resp.bits.mptperm(0)) || io.mptCheck.get.resp.bits.af// for ptw, af is af or not readable 
+      val accessFault = !(io.mptCheck.get.resp.bits.mptPerm(0)) || io.mptCheck.get.resp.bits.accessFault // for ptw, af is af or not readable 
       state.indices.map{i =>
         when (state(i) === stage_mpt_resp && io.mptCheck.get.resp.bits.id === entries(i).wait_id) {//对所有相同的wait id 进行检查
           entries(i).af:=accessFault// 如果af为1，那么不会走到这个state，因此无需accessFault||state.af
@@ -1145,6 +1147,7 @@ class LLPTW(implicit p: Parameters) extends XSModule with HasPtwConst with HasPe
     io.mptCheck.get.req.bits.reqPA:=  Mux(mpt_arb.get.io.out.bits.req_info.s2xlate === allStage, mpt_hpaddr, mpt_paddr)
     io.mptCheck.get.req.bits.id:= DontCare//assign by mpt arb in l2tlb
     io.mptCheck.get.req.valid:= mpt_arb.get.io.out.valid && !flush
+    io.mptCheck.get.req.bits.mptOnly:=false.B//mpt during tw is never mpt only 
     mpt_arb.get.io.out.ready:= io.mptCheck.get.req.ready
   }
 
@@ -1243,7 +1246,7 @@ class HPTWIO()(implicit p: Parameters) extends MMUIOBaseBundle with HasPtwConst 
 
   val mptCheck = Option.when(HasMptCheck)(new Bundle {
     val req = DecoupledIO(new mptReqBundle())
-    val resp = Flipped(DecoupledIO(new mptRespBundle()))
+    val resp = Flipped(ValidIO(new mptRespBundle()))
   })
 }
 
@@ -1252,7 +1255,7 @@ class HPTW()(implicit p: Parameters) extends XSModule with HasPtwConst {
   val hgatp = io.csr.hgatp
   val mpbmte = io.csr.mPBMTE
   val sfence = io.sfence
-  val flush = sfence.valid || hgatp.changed || io.csr.satp.changed || io.csr.vsatp.changed|| (if(HasMptCheck)( io.mfence.get.valid || io.csr.mmpt.changed ) else false.B)
+  val flush = sfence.valid || hgatp.changed || io.csr.satp.changed || io.csr.vsatp.changed|| (if(HasMptCheck)(io.csr.mmpt.changed ) else false.B)
   val mode = hgatp.mode
 
   val mptEn = if(HasMptCheck)(io.csr.mmpt.mode =/= 0.U) else false.B // mpt bare mode will generate the circuit but not using it 
@@ -1324,7 +1327,7 @@ class HPTW()(implicit p: Parameters) extends XSModule with HasPtwConst {
   val pageFault = pte.isGpf(level, mpbmte) || (!pte.isLeaf() && level === 0.U)
   val accessFault = RegEnable(io.pmp.resp.ld || io.pmp.resp.mmio, sent_to_pmp)
   // use access fault when mpt check failed
-  val mpt_af = if(HasMptCheck) {RegEnable(!io.mptCheck.get.resp.bits.mptperm(0) || io.mptCheck.get.resp.bits.af, io.mptCheck.get.resp.valid)} else false.B//R=0, af or not readable=>af , mpt af will be reged
+  val mpt_af = if(HasMptCheck) {RegEnable(!io.mptCheck.get.resp.bits.mptPerm(0) || io.mptCheck.get.resp.bits.accessFault, io.mptCheck.get.resp.valid)} else false.B//R=0, af or not readable=>af , mpt af will be reged
 
   // use access fault when bitmap check failed
   val ppn_af = if (HasBitmapCheck) {
@@ -1361,6 +1364,7 @@ class HPTW()(implicit p: Parameters) extends XSModule with HasPtwConst {
 
   if(HasMptCheck){//向mpt发送req
     io.mptCheck.get.req.valid:= s_mpt_check
+    io.mptCheck.get.req.bits.mptOnly:=false.B//mpt during tw is never mpt only 
     io.mptCheck.get.req.bits.reqPA:= mem_addr(PAddrBits-1 ,offLen)//和PMP一致，但是不用offset
     io.mptCheck.get.req.bits.id:= DontCare //id 由arbiter赋予
   }
@@ -1388,7 +1392,7 @@ class HPTW()(implicit p: Parameters) extends XSModule with HasPtwConst {
   io.refill.level := level
   io.refill.req_info.source := source
   io.refill.req_info.s2xlate := onlyStage2
-
+  if(HasMptCheck){io.refill.req_info.mptOnly.get := false.B}
   when (idle){
     if (HasBitmapCheck) {
       when (io.req.bits.bitmapCheck.get.jmp_bitmap_check && io.req.fire) {
@@ -1460,7 +1464,7 @@ class HPTW()(implicit p: Parameters) extends XSModule with HasPtwConst {
       }
     } 
     when(w_mpt_resp){
-      when(io.mptCheck.get.resp.fire){ 
+      when(io.mptCheck.get.resp.valid){ 
         w_mpt_resp:= false.B
         s_mem_req := false.B//send to mem when mpt pass
       }

@@ -198,7 +198,7 @@ class TlbSectorEntry(pageNormal: Boolean, pageSuper: Boolean)(implicit p: Parame
   val valididx = Vec(tlbcontiguous, Bool())
   val pteidx = Vec(tlbcontiguous, Bool())
   val ppn_low = Vec(tlbcontiguous, UInt(sectortlbwidth.W))
-  val mptperm = Option.when(HasBitmapCheck)(new MptPermBundle)
+  val mptperm = Option.when(HasMptCheck)(new MptPermBundle)
   val g_perm = new TlbPermBundle
   val vmid = UInt(vmidLen.W)
   val s2xlate = UInt(2.W)
@@ -294,18 +294,19 @@ class TlbSectorEntry(pageNormal: Boolean, pageSuper: Boolean)(implicit p: Parame
       allStage -> (item.s1.entry.level.getOrElse(0.U) min item.s2.entry.level.getOrElse(0.U)),
       noS2xlate -> item.s1.entry.level.getOrElse(0.U)
     ))
-    val mpt_level =Option.when(HasMptCheck)(inner_level min item.mpt.mptlevel)
+    val mpt_level =Option.when(HasMptCheck)(inner_level min item.mpt.get.mptLevel)
     this.level.map(_ := (if(HasMptCheck) (mpt_level.get) else (inner_level)))
     this.perm.apply(item.s1)
     this.pbmt := item.s1.entry.pbmt
-
-    if(HasMptCheck){//assign mpt perm
-      this.mptperm.get.x:= item.mpt.mptperm(2)===1.U
-      this.mptperm.get.w:= item.mpt.mptperm(1)===1.U
-      this.mptperm.get.r:= item.mpt.mptperm(0)===1.U
-      this.mptperm.get.af:=item.mpt.af
-      this.mptperm.get.iscontiguous:= item.mpt.contigous_perm
-    }
+    this.mptperm.get.resp_apply(item.mpt.get)
+    /*if(HasMptCheck){//assign mpt perm
+      this.mptperm.get.x:= item.mpt.mptPerm(2)===1.U
+      this.mptperm.get.w:= item.mpt.mptPerm(1)===1.U
+      this.mptperm.get.r:= item.mpt.mptPerm(0)===1.U
+      this.mptperm.get.af:=item.mpt.accessFault
+      this.mptperm.get.iscontiguous:= item.mpt.contigousPerm
+      this.mptperm.get.isNAPOT:= yr
+    }*/
 
     val s1tag = item.s1.entry.tag
     val s2tag = item.s2.entry.tag(gvpnLen - 1, sectortlbwidth)
@@ -314,7 +315,7 @@ class TlbSectorEntry(pageNormal: Boolean, pageSuper: Boolean)(implicit p: Parame
     this.pteidx := Mux(item.s2xlate === onlyStage2, VecInit(UIntToOH(item.s2.entry.tag(sectortlbwidth - 1, 0)).asBools), item.s1.pteidx)
     val s2_valid = Mux(s2page_pageSuper, VecInit(Seq.fill(tlbcontiguous)(true.B)), VecInit(UIntToOH(item.s2.entry.tag(sectortlbwidth - 1, 0)).asBools))
     this.valididx := Mux(item.s2xlate === onlyStage2, s2_valid, 
-      Mux((if(HasMptCheck) item.mpt.contigous_perm else true.B),item.s1.valididx,item.s1.pteidx))
+      Mux((if(HasMptCheck) item.mpt.get.contigousPerm else true.B),item.s1.valididx,item.s1.pteidx))
       //if mptcheck, tlb compression is only valid when all 8 mpt 4k page have identical perms
     // if stage2 page is larger than stage1 page, need to merge s2tag and s2ppn to get a new s2ppn.
     val s1ppn = item.s1.entry.ppn(sectorppnLen - 1, 0)
@@ -339,9 +340,10 @@ class TlbSectorEntry(pageNormal: Boolean, pageSuper: Boolean)(implicit p: Parame
     // 1. s1 is napot(64KB) and s2 is superpage(greater than or equal to 2MB)
     // 2. s2 is napot(64KB) and s1 is superpage(greater than or equal to 2MB)
     // 3. s1 is napot(64KB) and s2 is also napot(64KB)
-    val allStage_n = (item.s1.entry.n.getOrElse(0.U) =/= 0.U && item.s2.entry.level.getOrElse(0.U) =/= 0.U) ||
+    // 4. when mpt enabled, 1-3 n is valid and mpt is napot or mpt is superpage 
+    val allStage_n = ((item.s1.entry.n.getOrElse(0.U) =/= 0.U && item.s2.entry.level.getOrElse(0.U) =/= 0.U) ||
       (item.s2.entry.n.getOrElse(0.U) =/= 0.U && item.s1.entry.level.getOrElse(0.U) =/= 0.U) ||
-      (item.s1.entry.n.getOrElse(0.U) =/= 0.U && item.s2.entry.n.getOrElse(0.U) =/= 0.U)
+      (item.s1.entry.n.getOrElse(0.U) =/= 0.U && item.s2.entry.n.getOrElse(0.U) =/= 0.U))&& (if(HasMptCheck) (item.mpt.get.permIsNAPOT || item.mpt.get.mptLevel=/=0.U) else true.B)
     this.n := MuxLookup(item.s2xlate, 2.U)(Seq(
       onlyStage1 -> item.s1.entry.n.getOrElse(0.U),
       onlyStage2 -> item.s2.entry.n.getOrElse(0.U),
@@ -467,15 +469,16 @@ class MptPermBundle(implicit p: Parameters) extends TlbBundle {
   val x = Bool()
   val w = Bool()
   val r = Bool()
-  val iscontiguous = Bool()
-  val isNAPOT = Bool()
+  //val iscontiguous = Bool()
+  //val isNAPOT = Bool()
 
   def resp_apply( mptresp:mptRespBundle) = {
-    this.x:= mptresp.mptperm(2)===1.U
-      this.w:= mptresp.mptperm(1)===1.U
-      this.r:= mptresp.mptperm(0)===1.U
-      this.af:=mptresp.af
-      this.iscontiguous:= mptresp.contigous_perm
+    this.x:= mptresp.mptPerm(2)===1.U
+    this.w:= mptresp.mptPerm(1)===1.U
+    this.r:= mptresp.mptPerm(0)===1.U
+    this.af:=mptresp.accessFault
+    //this.iscontiguous:= mptresp.contigousPerm //there is no need to store NAPOT info form mpt
+    //this.isNAPOT := mptresp.permIsNAPOT
   }
 }
 class TlbStorageWrapperIO(ports: Int, q: TLBParameters, nDups: Int = 1)(implicit p: Parameters) extends MMUIOBaseBundle {
@@ -659,7 +662,7 @@ class TlbHintIO(implicit p: Parameters) extends TlbBundle {
 
 class MMUIOBaseBundle(implicit p: Parameters) extends TlbBundle {
   val sfence = Input(new SfenceBundle)
-  val mfence = Option.when(HasMptCheck)( Input(new MfenceBundle))//add mfence 
+  //val mfence = Option.when(HasMptCheck)( Input(new MfenceBundle))//add mfence 
   val csr = Input(new TlbCsrBundle)
 
   def base_connect(sfence: SfenceBundle, csr: TlbCsrBundle): Unit = {
@@ -1309,7 +1312,7 @@ class PtwRespS2(implicit p: Parameters) extends PtwBundle {
   val s2xlate = UInt(2.W)
   val s1 = new PtwSectorResp()
   val s2 = new HptwResp()
-  val mpt = new mptRespBundle()
+  val mpt = Option.when(HasMptCheck)(new mptRespBundle())
 
   def hasS2xlate: Bool = {
     this.s2xlate =/= noS2xlate
@@ -1372,7 +1375,7 @@ class L2TLBIO(implicit p: Parameters) extends PtwBundle {
   val hartId = Input(UInt(hartIdLen.W))
   val tlb = Vec(PtwWidth, Flipped(new TlbPtwIO))
   val sfence = Input(new SfenceBundle)
-  val mfence = Input(new MfenceBundle)
+  //val mfence = Input(new MfenceBundle)
   val csr = new Bundle {
     val tlb = Input(new TlbCsrBundle)
     val distribute_csr = Flipped(new DistributedCSRIO)

@@ -512,18 +512,6 @@ object HypervisorDecode extends DecodeConstants {
   )
 }
 
-object MptDecode extends DecodeConstants {
-  override val decodeArray: Array[(BitPat, XSDecodeBase)] = Array(
-  /* 
-  fence for mptable
-  */
-  
-
-    MFENCE_VMA -> XSDecode(SrcType.reg, SrcType.reg, SrcType.X, FuType.fence, FenceOpType.mfence, SelImm.X, noSpec = T, blockBack = T, flushPipe = T),
-  )
-}
-
-
 object ZicondDecode extends DecodeConstants {
   override val decodeArray: Array[(BitPat, XSDecodeBase)] = Array(
     CZERO_EQZ   -> XSDecode(SrcType.reg, SrcType.reg, SrcType.X, FuType.alu, ALUOpType.czero_eqz, SelImm.X, xWen = T, canRobCompress = T),
@@ -814,7 +802,7 @@ class DecodeUnit(implicit p: Parameters) extends XSModule with DecodeUnitConstan
 
   private val inst: XSInstBitFields = io.enq.ctrlFlow.instr.asTypeOf(new XSInstBitFields)
 
-  val decode_table: Array[(BitPat, List[BitPat])] = if(HasMptCheck) {XDecode.table ++
+  val decode_table: Array[(BitPat, List[BitPat])] = XDecode.table ++
     FpDecode.table ++
 //    FDivSqrtDecode.table ++
     BitmanipDecode.table ++
@@ -823,27 +811,10 @@ class DecodeUnit(implicit p: Parameters) extends XSModule with DecodeUnitConstan
     CBODecode.table ++
     SvinvalDecode.table ++
     HypervisorDecode.table ++
-    MptDecode.table ++//addmfence 
     VecDecoder.table ++
     ZicondDecode.table ++
     ZimopDecode.table ++
     ZfaDecode.table
-  }else{
-      XDecode.table ++
-    FpDecode.table ++
-//    FDivSqrtDecode.table ++
-    BitmanipDecode.table ++
-    ScalarCryptoDecode.table ++
-    XSTrapDecode.table ++
-    CBODecode.table ++
-    SvinvalDecode.table ++
-    HypervisorDecode.table ++
-    //MptDecode ++//addmfence 
-    VecDecoder.table ++
-    ZicondDecode.table ++
-    ZimopDecode.table ++
-    ZfaDecode.table
-    }
 
   require(decode_table.map(_._2.length == 15).reduce(_ && _), "Decode tables have different column size")
   // assertion for LUI: only LUI should be assigned `selImm === SelImm.IMM_U && fuType === FuType.alu`
@@ -914,7 +885,7 @@ class DecodeUnit(implicit p: Parameters) extends XSModule with DecodeUnitConstan
     io.fromCSR.illegalInst.sfenceVMA  && FuType.FuTypeOrR(decodedInst.fuType, FuType.fence) && decodedInst.fuOpType === FenceOpType.sfence  ||
     io.fromCSR.illegalInst.sfencePart && FuType.FuTypeOrR(decodedInst.fuType, FuType.fence) && decodedInst.fuOpType === FenceOpType.nofence ||
     io.fromCSR.illegalInst.hfenceGVMA && FuType.FuTypeOrR(decodedInst.fuType, FuType.fence) && decodedInst.fuOpType === FenceOpType.hfence_g ||
-    io.fromCSR.illegalInst.hfenceVVMA && FuType.FuTypeOrR(decodedInst.fuType, FuType.fence) && decodedInst.fuOpType === FenceOpType.hfence_v ||//mpt have no exception for mfence, or does it?
+    io.fromCSR.illegalInst.hfenceVVMA && FuType.FuTypeOrR(decodedInst.fuType, FuType.fence) && decodedInst.fuOpType === FenceOpType.hfence_v ||
     io.fromCSR.illegalInst.hlsv       && FuType.FuTypeOrR(decodedInst.fuType, FuType.ldu)   && (LSUOpType.isHlv(decodedInst.fuOpType) || LSUOpType.isHlvx(decodedInst.fuOpType)) ||
     io.fromCSR.illegalInst.hlsv       && FuType.FuTypeOrR(decodedInst.fuType, FuType.stu)   && LSUOpType.isHsv(decodedInst.fuOpType) ||
     io.fromCSR.illegalInst.fsIsOff    && (

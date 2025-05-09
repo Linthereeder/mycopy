@@ -65,12 +65,11 @@ class TLB(Width: Int, nRespDups: Int = 1, Block: Seq[Boolean], q: TLBParameters)
     * it should not drop reqs from pipe and should return right resp
     */
   val sfence = DelayN(io.sfence, q.fenceDelay)
-
-  val mfence = DelayN(io.mfence.get, q.fenceDelay)//add mfence 
+ 
   val csr = DelayN(io.csr, q.fenceDelay)
 
-  val flush_mmu = sfence.valid || csr.satp.changed || csr.vsatp.changed || csr.hgatp.changed || (if(HasMptCheck)(csr.mmpt.changed || mfence.valid) else false.B) //add mpt flush
-  val mmu_flush_pipe = sfence.valid && sfence.bits.flushPipe || mfence.valid // for svinval, won't flush pipe, mfence flush all?
+  val flush_mmu = sfence.valid || csr.satp.changed || csr.vsatp.changed || csr.hgatp.changed || (if(HasMptCheck)(csr.mmpt.changed ) else false.B) //add mpt flush
+  val mmu_flush_pipe = sfence.valid && sfence.bits.flushPipe   // for svinval, won't flush pipe, mfence flush all?
   val flush_pipe = io.flushPipe
   val redirect = io.redirect
   val EffectiveVa = Wire(Vec(Width, UInt(XLEN.W)))
@@ -439,10 +438,10 @@ class TLB(Width: Int, nRespDups: Int = 1, Block: Seq[Boolean], q: TLBParameters)
 
         //mptcheck
 
-    val mptInstf = Option.when(HasBitmapCheck)(!mptPerm.x && isInst)
-    val mptWf = Option.when(HasBitmapCheck)(!(mptPerm.r && mptPerm.w) && isSt)
-    val mptRf = Option.when(HasBitmapCheck)(!mptPerm.r && isLd)
-    val mptaf = Option.when(HasBitmapCheck)(mptPerm.af || (!mptPerm.r && mptPerm.w) )
+    val mptInstf = Option.when(HasMptCheck)(!mptPerm.x && isInst)
+    val mptWf = Option.when(HasMptCheck)(!(mptPerm.r && mptPerm.w) && isSt)
+    val mptRf = Option.when(HasMptCheck)(!mptPerm.r && isLd)
+    val mptaf = Option.when(HasMptCheck)(mptPerm.af || (!mptPerm.r && mptPerm.w) )
 
 
     // Stage 2 perm check
@@ -594,7 +593,7 @@ class TLB(Width: Int, nRespDups: Int = 1, Block: Seq[Boolean], q: TLBParameters)
       val stage2 = io.ptw.resp.bits.s2
       val s2xlate = io.ptw.resp.bits.s2xlate
       val mptresp = Wire (new MptPermBundle())
-      if (HasMptCheck) {mptresp.resp_apply(io.ptw.resp.bits.mpt)}
+      if (HasMptCheck) {mptresp.resp_apply(io.ptw.resp.bits.mpt.get)}
       resp(idx).valid := true.B
       resp(idx).bits.miss := false.B
       val s1_paddr = Cat(stage1.genPPN(get_pn(req_out(idx).vaddr)), get_off(req_out(idx).vaddr))
@@ -661,7 +660,10 @@ class TLB(Width: Int, nRespDups: Int = 1, Block: Seq[Boolean], q: TLBParameters)
     val p_s1_isLeaf = RegEnable(ptw.resp.bits.s1.isLeaf(), io.ptw.resp.fire)
     val p_s1_isFakePte = RegEnable(ptw.resp.bits.s1.isFakePte(), io.ptw.resp.fire)
 
-    val p_mptPerm = Option.when(HasBitmapCheck)(RegEnable(ptw.resp.bits.mpt.mptperm, io.ptw.resp.fire) )//HasMptCheck,add mptperm
+    val p_mptPerm_temp =Option.when(HasMptCheck)( Wire(new MptPermBundle))
+    if(HasMptCheck){p_mptPerm_temp.get.resp_apply(ptw.resp.bits.mpt.get)}
+    val p_mptPerm = Option.when(HasMptCheck)(RegEnable(p_mptPerm_temp.get, io.ptw.resp.fire) )//HasMptCheck,add mptperm
+
     (p_hit, p_ppn, p_pbmt, p_perm, p_gvpn, p_g_pbmt, p_g_perm, p_s2xlate, p_s1_level, p_s1_isLeaf, p_s1_isFakePte , p_mptPerm)
   }
 

@@ -70,6 +70,7 @@ class Fence(cfg: FuConfig)(implicit p: Parameters) extends FuncUnit(cfg) {
   sfence.bits.flushPipe := uop.ctrl.flushPipe.get
   sfence.bits.hv := func === FenceOpType.hfence_v
   sfence.bits.hg := func === FenceOpType.hfence_g
+  if(HasMptCheck){sfence.bits.mfence.get:= func === FenceOpType.mfence}//not yet finished!!!
   sfence.bits.addr := RegEnable(io.in.bits.data.src(0), io.in.fire)
   sfence.bits.id   := RegEnable(io.in.bits.data.src(1), io.in.fire)
 
